@@ -100,6 +100,23 @@ SHOTS = [
 # lines that stay on screen until just before the next lyric
 HOLD_TO_NEXT = {"拳が合わさる"}
 
+# How each lyric line leaves the screen (from the reviewed timing sheet, column M).
+#   P0 = as before (own fade-out, no hand-over)
+#   P1 = stays until the next line starts, then hands over (0.3 s fade)   <- default
+#   P2 = hand-over, shown 0.5 s longer      P3 = hand-over, shown 3.0 s longer
+# Lines with P1–P3 also get a quicker lead-in (first character sharp in ~0.35 s).
+LYRIC_PATTERN = {
+    "0:28": "P0", "0:46": "P0", "0:57": "P0", "1:04": "P0", "1:44": "P0", "2:02": "P0",
+    "2:13": "P0", "2:17": "P0", "2:20": "P0", "2:27": "P0", "2:45": "P0", "2:48": "P0",
+    "3:05": "P0", "3:13": "P0",
+    "1:11": "P2",
+    "3:20": "P3",
+}
+HANDOVER = 0.3
+EXTRA = {"P2": 0.5, "P3": 3.0}
+# the last line scatters off screen instead of fading
+SCATTER_LAST = True
+
 # lyric-video emphasis for key lines (everything else sits small at the bottom)
 EMPHASIS = {
     "グラスの底のサバンナの月": ("side_gold", "グラスの底の", "サバンナの月"),

@@ -391,7 +391,7 @@ def glyph_vertical(text, size, font=FONT, step=1.1):
 
 
 def draw_line(frame, glyphs, cx, cy, t_in, t_out, stagger=0.045, in_dur=0.45, rise=14,
-              color=WHITE, glow=(1.0, 0.72, 0.38), glow_amt=0.45, offset=(0, 0)):
+              color=WHITE, glow=(1.0, 0.72, 0.38), glow_amt=0.45, offset=(0, 0), scatter=None):
     chars, width, height = glyphs
     col = np.array(color, np.float32)
     gcol = np.array(glow, np.float32)
@@ -411,6 +411,41 @@ def draw_line(frame, glyphs, cx, cy, t_in, t_out, stagger=0.045, in_dur=0.45, ri
         if l < 0 or tp < 0 or l + w_ > W or tp + h_ > H:
             continue
         c = np.array(ccol, np.float32) if ccol is not None else col
+        if scatter is not None and t_in > scatter[0]:
+            # drift off screen: slow start, speeding up, turning, blurring and fading
+            span = scatter[1] - scatter[0]
+            u = min(1.0, max(0.0, (t_in - scatter[0] - i * 0.07) / (span * 0.85)))
+            if u > 0:
+                rs = np.random.default_rng(100 + i)
+                ang = rs.uniform(-2.4, -0.7) if rs.random() < 0.8 else rs.uniform(-0.5, 0.5) + (math.pi if i % 2 else 0)
+                dist = rs.uniform(1500, 2100)
+                e2 = u * u * (3 - 2 * u) * 0.35 + u ** 2.2 * 0.65
+                ox, oy = math.cos(ang) * dist * e2, math.sin(ang) * dist * e2
+                rot = rs.uniform(-70, 70) * e2
+                a *= 1 - ease((u - 0.55) / 0.45)
+                bm = max(bm, min(1.0, u * 1.2))
+                if abs(rot) > 0.5:
+                    sharp = np.asarray(Image.fromarray((sharp * 255).astype(np.uint8)).rotate(rot, Image.BILINEAR), np.float32) / 255
+                    blur = np.asarray(Image.fromarray((blur * 255).astype(np.uint8)).rotate(rot, Image.BILINEAR), np.float32) / 255
+                    shad = blur
+                cxg, cyg = l + w_ / 2, tp + h_ / 2
+                for q in range(4):  # golden dust trailing the character
+                    lag = 0.06 * (q + 1)
+                    ul = max(0.0, u - lag)
+                    el = ul * ul * (3 - 2 * ul) * 0.35 + ul ** 2.2 * 0.65
+                    px = cxg + math.cos(ang + 0.25 * (q - 1.5)) * dist * el + rs.uniform(-20, 20)
+                    py = cyg + math.sin(ang + 0.25 * (q - 1.5)) * dist * el + rs.uniform(-20, 20)
+                    add_sprite(frame, G["disc"], px, py, 0.35 + 0.15 * (q % 2), (1.0, 0.8, 0.45), 0.7 * (1 - u) * (u > lag))
+                l, tp = int(l + ox), int(tp + oy)
+                if a <= 0.003:
+                    continue
+                # clip at the frame edge so letters slide out instead of popping
+                xa, ya, xb, yb = max(0, l), max(0, tp), min(W, l + w_), min(H, tp + h_)
+                if xa >= xb or ya >= yb:
+                    continue
+                sl = (slice(ya - tp, yb - tp), slice(xa - l, xb - l))
+                sharp, blur, shad = sharp[sl], blur[sl], shad[sl]
+                l, tp, h_, w_ = xa, ya, yb - ya, xb - xa
         g = sharp * (1 - bm) + blur * bm
         reg = frame[tp:tp + h_, l:l + w_]
         reg *= (1 - shad[..., None] * 0.55 * a)
@@ -560,7 +595,8 @@ def render_frame(n):
             off = (amp * math.sin(d * 61), amp * math.cos(d * 47))
         draw_line(frame, L["g"], L["cx"], L["cy"], t - t0, (t1 - t) / L.get("out", 0.45),
                   stagger=L.get("stagger", 0.045), in_dur=L.get("in", 0.45), rise=L.get("rise", 14),
-                  color=L.get("color", WHITE), glow_amt=L.get("glow", 0.45), offset=off)
+                  color=L.get("color", WHITE), glow_amt=L.get("glow", 0.45), offset=off,
+                  scatter=(L["scatter"][0] - t0, L["scatter"][1] - t0) if L.get("scatter") else None)
 
     # grain
     g = G["grain"][(n * 5) % len(G["grain"])]
@@ -577,7 +613,31 @@ def build_lyrics(hit):
     """Normal lines sit at the bottom and are revealed one character at a time along with the singing;
     selected lines get a lyric-video emphasis (see timeline.EMPHASIS)."""
     out = []
-    for t0, t1, text, sec in parse_lyrics():
+    lines = parse_lyrics()
+    for li, (t0, t1, text, sec) in enumerate(lines):
+        first = len(out)
+        _lyric_entries(out, t0, t1, text, sec, hit)
+        nxt = lines[li + 1][0] if li + 1 < len(lines) else None
+        key = f"{int(t0 // 60)}:{int(t0 % 60):02d}"
+        pat = TL.LYRIC_PATTERN.get(key, "P1")
+        for e in out[first:]:
+            if pat == "P0":
+                continue
+            e["in_dur"] = min(e.get("in_dur", 0.6), 0.35)
+            end = e["t1"] + TL.EXTRA.get(pat, 0.0) if pat in TL.EXTRA else (nxt if nxt else e["t1"])
+            if nxt is not None and end >= nxt:
+                e["t1"], e["out"] = nxt + TL.HANDOVER, TL.HANDOVER
+            else:
+                e["t1"] = end
+        if nxt is None and TL.SCATTER_LAST:
+            for e in out[first:]:
+                e["scatter"] = (e["t1"] - TL.EXTRA.get(pat, 0.0), e["t1"])
+                e["out"] = 0.01
+    return out
+
+
+def _lyric_entries(out, t0, t1, text, sec, hit):
+    if True:
         size = 50 if "Chorus" in sec or "Outro" in sec else 46
         em = TL.EMPHASIS.get(text)
         n = len(text.replace(" ", "").replace("\u3000", ""))
