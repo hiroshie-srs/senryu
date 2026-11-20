@@ -155,8 +155,8 @@ def bg_for(name, crop):
 # ============================================================================ layouts
 
 def shake(t, amp=1.0):
-    return (amp * (3.0 * math.sin(t * 1.3) + 1.6 * math.sin(t * 3.7 + 1)),
-            amp * (2.4 * math.sin(t * 1.7 + 2) + 1.2 * math.sin(t * 4.3)))
+    return (amp * (1.4 * math.sin(t * 0.9) + 0.5 * math.sin(t * 2.3 + 1)),
+            amp * (1.1 * math.sin(t * 1.1 + 2) + 0.4 * math.sin(t * 2.7)))
 
 
 def place(frame, img, box_src, left, top, w, h, rot=0.0):
@@ -222,7 +222,7 @@ def layout_card(frame, t, p, prm):
     if cw > 1500:
         cw = 1500 * z
         ch = cw / asp
-    cx = W / 2 + prm.get("dx", 0) * (e - 0.5) * 2 + sx
+    cx = prm.get("x", W / 2) + prm.get("dx", 0) * (e - 0.5) * 2 + sx
     cy = H / 2 - 62 + prm.get("dy", 0) * (e - 0.5) * 2 + sy
     left, top = cx - cw / 2, cy - ch / 2
     shadow(frame, left, top, cw, ch)
@@ -272,8 +272,8 @@ def layout_split(frame, t, p, prm, dur):
     el = t - prm["_t0"]
     for i, name in enumerate(ps):
         img = G["src"][name]
-        k = ease_out((el - i * 0.07) / 0.35)
-        z = 1.0 + 0.05 * p
+        k = ease_out((el - i * 0.15) / 0.8)
+        z = 1.0 + 0.03 * p
         colh = H - gap - 150
         # cover-fit the panel into the column
         asp = colw / colh
@@ -554,6 +554,11 @@ def build_lyrics(hit):
         elif em[0] == "center_gold":
             out.append(dict(base, g=glyph_line(text, 92, 0.10, FONT_B), cy=520, color=GOLD, glow=0.9,
                             stagger=0.06, in_dur=0.6, rise=24, dark=0.5, out=0.7))
+        elif em[0] == "side_gold":
+            for j, part in enumerate(em[1:]):
+                out.append(dict(base, t0=t0 + 0.45 * j, g=glyph_line(part, 84, 0.10, FONT_B), cx=1370,
+                                cy=430 + j * 125, color=GOLD, glow=0.9, stagger=0.07, in_dur=0.6,
+                                rise=20, dark=0.5 if j == 0 else 0.0, mask="side_dark", out=0.7))
         elif em[0] == "center":
             out.append(dict(base, g=glyph_line(text, 88, 0.10, FONT_B), cy=520, glow=0.7,
                             stagger=0.06, in_dur=0.6, rise=24, dark=0.5, out=0.7))
@@ -593,7 +598,7 @@ def init():
     for i, s in enumerate(shots):
         s["t1"] = shots[i + 1]["t0"] if i + 1 < len(shots) else DURATION + 0.5
     G["shots"] = shots
-    G["flash_times"] = [(s["t0"], 0.6) for s in shots if s["flash"]]
+    G["flash_times"] = [(s["t0"], 0.6 if s["t0"] == G["hit_time"] else 0.28) for s in shots if s["flash"]]
     G["flash_times"] += [(float(beats[np.argmin(np.abs(beats - t))]), a) for t, a in TL.EXTRA_FLASH]
 
     G["lyrics"] = build_lyrics(G["hit_time"])
@@ -604,6 +609,7 @@ def init():
     r = np.sqrt(((xx - W / 2) / (W * 0.6)) ** 2 + ((yy - H / 2) / (H * 0.72)) ** 2)
     G["vig"] = np.clip(1 - 0.6 * np.clip(r - 0.45, 0, None) ** 1.5, 0, 1)[..., None].astype(np.float32)
     G["lowband"] = (1 - 0.45 * np.clip((yy[:, :1] - 880) / 160, 0, 1) ** 1.3)[..., None].astype(np.float32)
+    G["side_dark"] = np.exp(-(((xx - 1370) / 520) ** 2 + ((yy - 490) / 230) ** 2))[..., None].astype(np.float32)
     G["low_dark"] = np.exp(-(((xx - W / 2) / 640) ** 2 + ((yy - 820) / 120) ** 2))[..., None].astype(np.float32)
     G["right_dark"] = (np.clip((xx[:1] - 1250) / 400, 0, 1) ** 1.2)[..., None].astype(np.float32) * np.ones((H, 1, 1), np.float32)
     G["all_dark"] = np.ones((H, W, 1), np.float32)
