@@ -631,6 +631,7 @@ def build_lyrics(hit):
                 e["t1"] = end
         if nxt is None and TL.SCATTER_LAST:
             for e in out[first:]:
+                e["t1"] += TL.SCATTER_DELAY
                 e["scatter"] = (e["t1"] - TL.EXTRA.get(pat, 0.0), e["t1"])
                 e["out"] = 0.01
     return out
@@ -669,8 +670,9 @@ def _lyric_entries(out, t0, t1, text, sec, hit):
                             color=GOLD, glow=1.0, stagger=0.035, in_dur=0.12, rise=0, shake=True,
                             dark=0.55, mask="low_dark", out=1.4))
         elif em[0] == "finale":
+            # one character at a time, each fully placed before the next (20 % slower than before)
             out.append(dict(base, g=glyph_line(text, 84, 0.12, FONT_B), cy=520, glow=0.8,
-                            stagger=slow, in_dur=1.0, rise=18, dark=0.62, mask="all_dark", out=1.4))
+                            stagger=0.325, in_dur=0.3, rise=18, dark=0.62, mask="all_dark", out=1.4))
     return out
 
 
@@ -702,7 +704,7 @@ def init():
         elif s_["t0"] < 14.5 or 75.0 <= s_["t0"] < 90.0 or s_["t0"] >= 200.0:
             s_["xd"] = 1.6
         else:
-            s_["xd"] = 0.8
+            s_["xd"] = 1.2
     G["flash_times"] = [(s["t0"], 0.6 if s["t0"] == G["hit_time"] else 0.28) for s in shots if s["flash"]]
     G["flash_times"] += [(float(beats[np.argmin(np.abs(beats - t))]), a) for t, a in TL.EXTRA_FLASH]
 
