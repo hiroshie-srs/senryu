@@ -105,8 +105,7 @@ def add_sprite(frame, spr, x, y, scale, color, amount):
     if amount <= 0.01:
         return
     s = max(4, int(spr.shape[0] * scale))
-    if s % 2 == 0:
-        s += 1
+    s = int(round(s / 8.0)) * 8 + 1  # quantise so the cache stays small
     key = (id(spr), s)
     sp = G["sprite_cache"].get(key)
     if sp is None:
@@ -138,7 +137,7 @@ def bg_for(name, crop):
     """Blurred, darkened cover background (slightly oversized for parallax)."""
     key = (name, crop)
     if key in G["bg_cache"]:
-        return G["bg_cache"][key]
+        return G["bg_cache"][key].astype(np.float32) / 255.0
     img = G["src"][name]
     if crop:
         img = img.crop(crop)
@@ -148,7 +147,7 @@ def bg_for(name, crop):
     l, t = (im.width - bw) // 2, (im.height - bh) // 2
     im = im.crop((l, t, l + bw, t + bh)).filter(ImageFilter.GaussianBlur(38))
     a = to_f(im) * 0.42 + np.array([0.02, 0.012, 0.0], np.float32)
-    G["bg_cache"][key] = a
+    G["bg_cache"][key] = (np.clip(a, 0, 1) * 255).astype(np.uint8)
     return a
 
 # ============================================================================ layouts
@@ -293,21 +292,41 @@ def layout_split(frame, t, p, prm, dur):
 
 
 def layout_meet(frame, t, p, prm):
+    """Two cards slide in from the sides, over the bar counter, and bump at `touch` seconds."""
     a, b = prm["ps"]
     el = t - prm["_t0"]
-    k = ease_out(el / prm.get("touch", 1.5))
-    bgA = bg_for(a, None)
-    frame[:] = bgA[34:34 + H, 60:60 + W] * 0.8
-    ch = 700
+    touch = prm.get("touch", 1.5)
+    k = ease_out(el / touch) if el < touch else 1.0
+    # small recoil after the bump
+    rec = 0.0
+    if el >= touch:
+        d = el - touch
+        rec = 22 * math.exp(-d / 0.18) * math.cos(d * 18)
+    bgA = bg_for(prm.get("bg", a), None)
+    sx, sy = shake(t)
+    frame[:] = bgA[34:34 + H, 60:60 + W] * 0.85
+    ch = prm.get("h", 720) * (1 + 0.03 * p)
+    top = H / 2 - ch / 2 - 62 + sy
     for j, name in enumerate((a, b)):
         img = G["src"][name]
+        if j == 1 and prm.get("flip_right"):
+            img = G["flip_cache"].setdefault(name, img.transpose(Image.FLIP_LEFT_RIGHT))
         cw = ch * img.width / img.height
-        start = -cw * 0.2 if j == 0 else W - cw * 0.8
-        end = W / 2 - cw - 6 if j == 0 else W / 2 + 6
-        left = start + (end - start) * k
-        top = H / 2 - ch / 2 - 70
+        start = -cw * 0.3 if j == 0 else W - cw * 0.7
+        end = W / 2 - cw - 4 if j == 0 else W / 2 + 4
+        left = start + (end - start) * k + (-rec if j == 0 else rec) + sx
         shadow(frame, left, top, cw, ch)
         place(frame, img, (0, 0, img.width, img.height), left, top, cw, ch)
+    if el >= touch:  # impact burst where the two meet
+        d = el - touch
+        amt = math.exp(-d / 0.35)
+        cy = top + ch * prm.get("hit_y", 0.62)
+        add_sprite(frame, G["star"], W / 2, cy, 2.6 + 1.5 * d, (1.0, 0.85, 0.55), 1.6 * amt)
+        for q in range(10):
+            ang = q * 0.628 + 0.3
+            r = 60 + 520 * (1 - math.exp(-d / 0.25))
+            add_sprite(frame, G["disc"], W / 2 + r * math.cos(ang), cy + r * math.sin(ang) * 0.7,
+                       0.5 + 0.3 * (q % 3), (1.0, 0.8, 0.45), 0.9 * amt)
 
 
 LAYOUTS = {"card": layout_card, "fill": layout_fill, "split": layout_split, "meet": layout_meet}
@@ -458,6 +477,7 @@ def render_frame(n):
 def init():
     G["sprite_cache"] = {}
     G["bg_cache"] = {}
+    G["flip_cache"] = {}
     G["src"], G["glints"] = load()
     G["star"] = star_sprite(120)
     G["disc"] = disc_sprite(22)

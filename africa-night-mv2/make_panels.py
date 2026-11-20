@@ -16,11 +16,13 @@ C_BOT = [(10, 322), (332, 658), (668, 965), (976, 1271), (1280, 1662)]
 SPEC = {
     "hiroshie": [(x, 63, y, 484) for x, y in H_TOP] + [(x, 494, y, 926) for x, y in H_BOT],
     "cat": [(x, 80, y, 467) for x, y in C_TOP] + [(x, 480, y, 911) for x, y in C_BOT],
+    "master": [(x, 63, y, 485) for x, y in [(10, 333), (342, 664), (673, 994), (1004, 1325), (1334, 1661)]]
+    + [(x, 495, y, 926) for x, y in [(9, 300), (309, 608), (616, 910), (918, 1240), (1248, 1662)]],
     "bar": [(11, 63, 578, 916), (594, 63, 1136, 916), (1152, 63, 1662, 916)],
     "moon": [(11, 63, 579, 916), (595, 63, 1134, 916), (1150, 63, 1661, 916)],
 }
-PREFIX = {"hiroshie": "H", "cat": "C", "bar": "B", "moon": "M"}
-BADGE = {"hiroshie": 58, "cat": 46, "bar": 66, "moon": 66}
+PREFIX = {"master": "K", "hiroshie": "H", "cat": "C", "bar": "B", "moon": "M"}
+BADGE = {"master": 46, "hiroshie": 58, "cat": 46, "bar": 66, "moon": 66}
 
 os.makedirs(OUT, exist_ok=True)
 for sheet, boxes in SPEC.items():
