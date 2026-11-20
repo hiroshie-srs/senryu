@@ -129,7 +129,9 @@ def load():
         name = f[:-4]
         src[name] = grade(Image.open(os.path.join(pd, f)))
     src["Y"] = grade(Image.open(os.path.join(ASSETS, "sheets", "yokohama.webp")))
-    glints = {k: find_glints(v, n=(7 if k == "Y" else 4)) for k, v in src.items()}
+    src["TALK"] = grade(Image.open(os.path.join(ASSETS, "sheets", "talk.webp")))
+    src["FIST"] = grade(Image.open(os.path.join(ASSETS, "sheets", "fistbump.webp")))
+    glints = {k: find_glints(v, n=(7 if k == "Y" else 5 if k in ("TALK", "FIST") else 4)) for k, v in src.items()}
     return src, glints
 
 
@@ -251,6 +253,9 @@ def layout_fill(frame, t, p, prm):
     cy = min(max(cy + sy * w / W, h / 2), img.height - h / 2)
     box = (cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
     place(frame, img, box, 0, 0, W, H)
+    if prm.get("burst"):
+        bx, by = prm["burst"]
+        G["burst_xy"] = ((bx - box[0]) / w * W, (by - box[1]) / h * H)
 
     def mapper(gx, gy):
         X, Y = (gx - box[0]) / w * W, (gy - box[1]) / h * H
@@ -333,47 +338,84 @@ LAYOUTS = {"card": layout_card, "fill": layout_fill, "split": layout_split, "mee
 
 # ============================================================================ text
 
-def glyph_line(text, size, tracking=0.12, font=FONT):
-    """Pre-render each character: returns list of (x_offset, sharp_alpha, blur_alpha) + total width."""
-    f = ImageFont.truetype(font, size, index=0)
-    chars = []
-    x = 0.0
-    pad = int(size * 0.6)
-    for c in text:
+GOLD = (1.0, 0.80, 0.46)
+WHITE = (1.0, 0.965, 0.9)
+
+
+def _glyph(c, f, size, pad, w, h, anchor_xy, anchor):
+    im = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(im).text(anchor_xy, c, font=f, fill=255, anchor=anchor)
+    sharp = np.asarray(im, np.float32) / 255
+    blur = np.asarray(im.filter(ImageFilter.GaussianBlur(size * 0.18)), np.float32) / 255
+    shad = np.asarray(im.filter(ImageFilter.GaussianBlur(size * 0.22)), np.float32) / 255
+    return sharp, blur, shad
+
+
+def glyph_line(text, size, tracking=0.12, font=FONT, big=None, big_scale=1.5, big_color=None):
+    """Horizontal line, baseline-aligned. `big` = substring to enlarge/colour.
+    Returns (chars, width, height); chars = (dx, dy, sharp, blur, shad, colour|None)."""
+    flags = [False] * len(text)
+    if big and big in text:
+        i0 = text.index(big)
+        for k in range(i0, i0 + len(big)):
+            flags[k] = True
+    maxs = int(size * big_scale) if any(flags) else size
+    pad = int(maxs * 0.6)
+    hgt = int(maxs * 1.45) + pad * 2
+    base = pad + int(maxs * 1.12)
+    chars, x = [], 0.0
+    for c, fl in zip(text, flags):
+        sz = int(size * big_scale) if fl else size
+        f = ImageFont.truetype(font, sz, index=0)
         adv = f.getlength(c)
-        if c.strip() and c != "　":
-            im = Image.new("L", (int(adv) + pad * 2, int(size * 1.5) + pad * 2), 0)
-            ImageDraw.Draw(im).text((pad, pad), c, font=f, fill=255)
-            sharp = np.asarray(im, np.float32) / 255
-            blur = np.asarray(im.filter(ImageFilter.GaussianBlur(size * 0.18)), np.float32) / 255
-            shad = np.asarray(im.filter(ImageFilter.GaussianBlur(size * 0.22)), np.float32) / 255
-            chars.append((x - pad, sharp, blur, shad))
-        x += adv + size * tracking
-    return chars, x - size * tracking, pad
+        if c.strip() and c != "\u3000":
+            sh, bl, sd = _glyph(c, f, sz, pad, int(adv) + pad * 2, hgt, (pad, base), "ls")
+            chars.append((x - pad, 0, sh, bl, sd, big_color if fl else None))
+        x += adv + sz * tracking
+    return chars, x - size * tracking, hgt
 
 
-def draw_line(frame, chars, width, pad, cx, cy, t_in, t_out, stagger=0.045, color=(1.0, 0.965, 0.9), glow=(1.0, 0.72, 0.38)):
+def glyph_vertical(text, size, font=FONT, step=1.1):
+    f = ImageFont.truetype(font, size, index=0)
+    pad = int(size * 0.6)
+    cell = size + pad * 2
+    chars, y = [], 0.0
+    for c in text:
+        if c.strip() and c != "\u3000":
+            sh, bl, sd = _glyph(c, f, size, pad, cell, cell, (cell / 2, cell / 2), "mm")
+            chars.append((-cell / 2, y - pad, sh, bl, sd, None))
+        y += size * step
+    total = y - size * (step - 1)
+    # dx already centred; report width 0 so cx is the column centre
+    return [(dx, dy, a, b, c_, col) for dx, dy, a, b, c_, col in chars], 0.0, total
+
+
+def draw_line(frame, glyphs, cx, cy, t_in, t_out, stagger=0.045, in_dur=0.45, rise=14,
+              color=WHITE, glow=(1.0, 0.72, 0.38), glow_amt=0.45, offset=(0, 0)):
+    chars, width, height = glyphs
     col = np.array(color, np.float32)
     gcol = np.array(glow, np.float32)
-    x0 = cx - width / 2
-    n = len(chars)
-    for i, (dx, sharp, blur, shad) in enumerate(chars):
-        a_in = ease_out((t_in - i * stagger) / 0.45)
+    x0 = cx - width / 2 + offset[0]
+    y0 = cy - height / 2 + offset[1]
+    vertical = width == 0.0
+    for i, (dx, dy, sharp, blur, shad, ccol) in enumerate(chars):
+        a_in = ease_out((t_in - i * stagger) / in_dur)
         a = min(a_in, ease(t_out))
         if a <= 0.003:
             continue
-        rise = (1 - a_in) * 14
+        r = (1 - a_in) * rise
         bm = 1 - a_in
         h_, w_ = sharp.shape
-        l = int(x0 + dx)
-        tp = int(cy - h_ / 2 + rise)
+        l = int(x0 + dx + (r if vertical else 0))
+        tp = int(y0 + dy + (0 if vertical else r))
         if l < 0 or tp < 0 or l + w_ > W or tp + h_ > H:
             continue
+        c = np.array(ccol, np.float32) if ccol is not None else col
         g = sharp * (1 - bm) + blur * bm
         reg = frame[tp:tp + h_, l:l + w_]
         reg *= (1 - shad[..., None] * 0.55 * a)
-        reg += blur[..., None] * gcol * 0.45 * a
-        reg[:] = reg * (1 - g[..., None] * a) + col * g[..., None] * a
+        reg += blur[..., None] * gcol * glow_amt * a
+        reg[:] = reg * (1 - g[..., None] * a) + c * g[..., None] * a
 
 
 def parse_lyrics():
@@ -434,6 +476,18 @@ def render_frame(n):
         a = 0.10 + 0.08 * math.sin(t * 1.3 + ph)
         add_sprite(frame, G["disc"], x, y, sz, (1.0, 0.78, 0.45), a)
 
+    # impact burst where the fists meet
+    if G["hit_time"] is not None and 0 <= t - G["hit_time"] < 0.9:
+        d = t - G["hit_time"]
+        amt = math.exp(-d / 0.3)
+        bx, by = G.get("burst_xy", (W / 2, 450))
+        add_sprite(frame, G["star"], bx, by, 2.4 + 1.2 * d, (1.0, 0.85, 0.55), 1.4 * amt)
+        for q in range(12):
+            ang = q * 0.5236 + 0.2
+            rr = 50 + 480 * (1 - math.exp(-d / 0.22))
+            add_sprite(frame, G["disc"], bx + rr * math.cos(ang), by + rr * math.sin(ang) * 0.7,
+                       0.45 + 0.3 * (q % 3), (1.0, 0.8, 0.45), 0.9 * amt)
+
     # flashes on chorus downbeats + accents
     fl = 0.0
     for c in G["flash_times"]:
@@ -461,12 +515,24 @@ def render_frame(n):
     for (ta, tb, _k) in TL.TITLE_CARDS:
         if ta <= t <= tb:
             out = (tb - t) / 1.0
-            for (chars, width, pad), cy, dly in G["title"]:
-                draw_line(frame, chars, width, pad, W / 2, cy, t - ta - dly, out, stagger=0.09)
+            for glyphs, cy, dly in G["title"]:
+                draw_line(frame, glyphs, W / 2, cy, t - ta - dly, out, stagger=0.09)
     # lyrics
-    for (t0, t1, chars, width, pad) in G["lyrics"]:
-        if t0 - 0.05 <= t <= t1 + 0.05:
-            draw_line(frame, chars, width, pad, W / 2, LYRIC_Y, t - t0, (t1 - t) / 0.45)
+    for L in G["lyrics"]:
+        t0, t1 = L["t0"], L["t1"]
+        if not (t0 - 0.05 <= t <= t1 + 0.05):
+            continue
+        k = min(ease((t - t0) / 0.6), ease((t1 - t) / 0.6))
+        if L.get("dark"):
+            frame *= 1 - L["dark"] * k * G[L.get("mask", "title_dark")]
+        off = (0, 0)
+        if L.get("shake"):
+            d = t - t0
+            amp = 16 * math.exp(-d / 0.18)
+            off = (amp * math.sin(d * 61), amp * math.cos(d * 47))
+        draw_line(frame, L["g"], L["cx"], L["cy"], t - t0, (t1 - t) / L.get("out", 0.45),
+                  stagger=L.get("stagger", 0.045), in_dur=L.get("in", 0.45), rise=L.get("rise", 14),
+                  color=L.get("color", WHITE), glow_amt=L.get("glow", 0.45), offset=off)
 
     # grain
     g = G["grain"][(n * 5) % len(G["grain"])]
@@ -474,8 +540,42 @@ def render_frame(n):
     return (np.clip(frame, 0, 1) * 255).astype(np.uint8).tobytes()
 
 
+def build_lyrics(hit):
+    """Normal lines sit at the bottom; selected lines get a lyric-video emphasis (see timeline.EMPHASIS)."""
+    out = []
+    for t0, t1, text, sec in parse_lyrics():
+        size = 50 if "Chorus" in sec or "Outro" in sec else 46
+        em = TL.EMPHASIS.get(text)
+        base = dict(t0=t0, t1=t1, cx=W / 2, cy=LYRIC_Y)
+        if em is None:
+            out.append(dict(base, g=glyph_line(text, size)))
+        elif em[0] == "word":
+            out.append(dict(base, g=glyph_line(text, size, big=em[1], big_scale=1.55, big_color=GOLD)))
+        elif em[0] == "center_gold":
+            out.append(dict(base, g=glyph_line(text, 92, 0.10, FONT_B), cy=520, color=GOLD, glow=0.9,
+                            stagger=0.06, in_dur=0.6, rise=24, dark=0.5, out=0.7))
+        elif em[0] == "center":
+            out.append(dict(base, g=glyph_line(text, 88, 0.10, FONT_B), cy=520, glow=0.7,
+                            stagger=0.06, in_dur=0.6, rise=24, dark=0.5, out=0.7))
+        elif em[0] == "vertical":
+            out.append(dict(base, g=glyph_vertical(text, 70, FONT_B), cx=W - 210, cy=490, glow=0.8,
+                            stagger=0.10, in_dur=0.7, rise=20, dark=0.55, mask="right_dark", out=1.0))
+        elif em[0] == "impact":
+            head = text[:text.index(em[1])]
+            ht = hit if hit is not None else t0 + 1.5
+            out.append(dict(base, t1=t1, g=glyph_line(head, size)))
+            out.append(dict(base, t0=ht, t1=t1, g=glyph_line(em[1], 112, 0.08, FONT_B), cy=820,
+                            color=GOLD, glow=1.0, stagger=0.035, in_dur=0.12, rise=0, shake=True,
+                            dark=0.55, mask="low_dark", out=0.6))
+        elif em[0] == "finale":
+            out.append(dict(base, g=glyph_line(text, 84, 0.12, FONT_B), cy=520, glow=0.8,
+                            stagger=0.12, in_dur=0.9, rise=18, dark=0.62, mask="all_dark", out=1.2))
+    return out
+
+
 def init():
     G["sprite_cache"] = {}
+    G["hit_time"] = None
     G["bg_cache"] = {}
     G["flip_cache"] = {}
     G["src"], G["glints"] = load()
@@ -488,18 +588,15 @@ def init():
         if t0 > 0.5:
             t0 = float(beats[np.argmin(np.abs(beats - t0))])
         shots.append(dict(t0=t0, layout=layout, prm=prm, flash=(len(row) > 3)))
+        if len(row) > 3 and row[3] == "hit":
+            G["hit_time"] = t0
     for i, s in enumerate(shots):
         s["t1"] = shots[i + 1]["t0"] if i + 1 < len(shots) else DURATION + 0.5
     G["shots"] = shots
     G["flash_times"] = [(s["t0"], 0.6) for s in shots if s["flash"]]
     G["flash_times"] += [(float(beats[np.argmin(np.abs(beats - t))]), a) for t, a in TL.EXTRA_FLASH]
 
-    lyr = []
-    for t0, t1, text, sec in parse_lyrics():
-        size = 50 if "Chorus" in sec or "Outro" in sec else 46
-        chars, width, pad = glyph_line(text, size)
-        lyr.append((t0, t1, chars, width, pad))
-    G["lyrics"] = lyr
+    G["lyrics"] = build_lyrics(G["hit_time"])
     G["title"] = [(glyph_line(TL.TITLE, 96, 0.34, FONT_B), 500, 0.0),
                   (glyph_line(TL.ARTIST, 34, 0.55), 610, 0.9)]
 
@@ -507,6 +604,9 @@ def init():
     r = np.sqrt(((xx - W / 2) / (W * 0.6)) ** 2 + ((yy - H / 2) / (H * 0.72)) ** 2)
     G["vig"] = np.clip(1 - 0.6 * np.clip(r - 0.45, 0, None) ** 1.5, 0, 1)[..., None].astype(np.float32)
     G["lowband"] = (1 - 0.45 * np.clip((yy[:, :1] - 880) / 160, 0, 1) ** 1.3)[..., None].astype(np.float32)
+    G["low_dark"] = np.exp(-(((xx - W / 2) / 640) ** 2 + ((yy - 820) / 120) ** 2))[..., None].astype(np.float32)
+    G["right_dark"] = (np.clip((xx[:1] - 1250) / 400, 0, 1) ** 1.2)[..., None].astype(np.float32) * np.ones((H, 1, 1), np.float32)
+    G["all_dark"] = np.ones((H, W, 1), np.float32)
     G["title_dark"] = np.exp(-(((xx - W / 2) / 620) ** 2 + ((yy - 550) / 190) ** 2))[..., None].astype(np.float32)
     cg = np.exp(-(((xx - W / 2) / 380) ** 2 + ((yy - H / 2) / 420) ** 2))
     G["center_glow"] = cg[..., None].astype(np.float32)
