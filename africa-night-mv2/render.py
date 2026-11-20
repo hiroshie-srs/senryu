@@ -577,9 +577,9 @@ def render_frame(n):
     # titles
     for (ta, tb, _k) in TL.TITLE_CARDS:
         if ta <= t <= tb:
-            out = (tb - t) / 1.0
-            for glyphs, cy, dly in G["title"]:
-                draw_line(frame, glyphs, W / 2, cy, t - ta - dly, out, stagger=0.09)
+            out = (tb - t) / 1.5
+            for glyphs, cy, dly, stg, ind in G["title"]:
+                draw_line(frame, glyphs, W / 2, cy, t - ta - dly, out, stagger=stg, in_dur=ind)
     # lyrics
     for L in G["lyrics"]:
         t0, t1 = L["t0"], L["t1"]
@@ -709,8 +709,9 @@ def init():
     G["flash_times"] += [(float(beats[np.argmin(np.abs(beats - t))]), a) for t, a in TL.EXTRA_FLASH]
 
     G["lyrics"] = build_lyrics(G["hit_time"])
-    G["title"] = [(glyph_line(TL.TITLE, 96, 0.34, FONT_B), 500, 0.0),
-                  (glyph_line(TL.ARTIST, 34, 0.55), 610, 0.9)]
+    # title: one character every 0.35 s, each easing in over ~1 s; artist name after the title is complete
+    G["title"] = [(glyph_line(TL.TITLE, 96, 0.34, FONT_B), 500, 0.0, 0.35, 1.0),
+                  (glyph_line(TL.ARTIST, 34, 0.55), 610, 3.1, 0.08, 1.2)]
 
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
     r = np.sqrt(((xx - W / 2) / (W * 0.6)) ** 2 + ((yy - H / 2) / (H * 0.72)) ** 2)
