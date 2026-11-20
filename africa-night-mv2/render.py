@@ -272,7 +272,7 @@ def layout_split(frame, t, p, prm, dur):
     el = t - prm["_t0"]
     for i, name in enumerate(ps):
         img = G["src"][name]
-        k = ease_out((el - i * 0.15) / 0.8)
+        k = 1.0
         z = 1.0 + 0.03 * p
         colh = H - gap - 150
         # cover-fit the panel into the column
@@ -435,7 +435,7 @@ def parse_lyrics():
         nxt = lines[i + 1][0] if i + 1 < len(lines) else DURATION
         cap = 7.0 if "Chorus" in ln[3] else 5.6
         if ln[1] is None:
-            ln[1] = min(nxt - 0.25, ln[0] + cap)
+            ln[1] = nxt - 0.3 if ln[2] in TL.HOLD_TO_NEXT else min(nxt - 0.25, ln[0] + cap)
     return lines
 
 # ============================================================================ frame
@@ -449,25 +449,53 @@ def shot_at(t):
     return i
 
 
-def render_frame(n):
-    t = n / FPS
-    frame = np.zeros((H, W, 3), np.float32)
-    i = shot_at(t)
-    s = G["shots"][i]
+def draw_shot(j, t):
+    s = G["shots"][j]
+    f = np.zeros((H, W, 3), np.float32)
     p = (t - s["t0"]) / (s["t1"] - s["t0"])
     prm = dict(s["prm"], _t0=s["t0"])
     if s["layout"] == "split":
-        layout_split(frame, t, p, prm, s["t1"] - s["t0"])
+        layout_split(f, t, p, prm, s["t1"] - s["t0"])
     else:
-        LAYOUTS[s["layout"]](frame, t, p, prm)
+        LAYOUTS[s["layout"]](f, t, p, prm)
+    return f
 
+
+def has_rain(j):
+    s = G["shots"][j]
     names = [s["prm"].get("p")] + list(s["prm"].get("ps", []))
+    return any(nm in TL.RAIN for nm in names if nm)
+
+
+def render_frame(n):
+    t = n / FPS
+    shots = G["shots"]
+    i = shot_at(t)
+    s = shots[i]
+    # cross-dissolve centred on each cut (the fist-bump hit stays a hard cut)
+    pair = None
+    if i + 1 < len(shots):
+        d = shots[i + 1]["xd"]
+        if d and t > s["t1"] - d / 2:
+            pair = (i, i + 1, ease((t - (s["t1"] - d / 2)) / d))
+    if pair is None and i > 0:
+        d = s["xd"]
+        if d and t < s["t0"] + d / 2:
+            pair = (i - 1, i, ease((t - (s["t0"] - d / 2)) / d))
+    if pair:
+        a_, b_, k = pair
+        frame = draw_shot(a_, t) * (1 - k) + draw_shot(b_, t) * k
+        rain_w = has_rain(a_) * (1 - k) + has_rain(b_) * k
+    else:
+        frame = draw_shot(i, t)
+        rain_w = float(has_rain(i))
+
     # rain for outdoor shots
-    if any(nm in TL.RAIN for nm in names if nm):
+    if rain_w > 0.01:
         r = G["rain"]
         off = int((t * 2600) % H)
         layer = np.concatenate([r[H - off:], r[:H - off]], axis=0)
-        frame += layer[..., None] * np.array([0.75, 0.82, 0.95], np.float32) * 0.22
+        frame += layer[..., None] * np.array([0.75, 0.82, 0.95], np.float32) * 0.22 * rain_w
 
     # floating warm dust
     for k, (px, py, vx, vy, sz, ph) in enumerate(G["dust"]):
@@ -540,41 +568,49 @@ def render_frame(n):
     return (np.clip(frame, 0, 1) * 255).astype(np.uint8).tobytes()
 
 
+def pace(t0, t1, n, frac, lo, hi):
+    """Stagger so the characters appear across `frac` of the line's time (sung-along reveal)."""
+    return min(hi, max(lo, (t1 - t0) * frac / max(1, n)))
+
+
 def build_lyrics(hit):
-    """Normal lines sit at the bottom; selected lines get a lyric-video emphasis (see timeline.EMPHASIS)."""
+    """Normal lines sit at the bottom and are revealed one character at a time along with the singing;
+    selected lines get a lyric-video emphasis (see timeline.EMPHASIS)."""
     out = []
     for t0, t1, text, sec in parse_lyrics():
         size = 50 if "Chorus" in sec or "Outro" in sec else 46
         em = TL.EMPHASIS.get(text)
-        base = dict(t0=t0, t1=t1, cx=W / 2, cy=LYRIC_Y)
+        n = len(text.replace(" ", "").replace("\u3000", ""))
+        base = dict(t0=t0, t1=t1, cx=W / 2, cy=LYRIC_Y, in_dur=0.6, rise=12, out=0.8,
+                    stagger=pace(t0, t1, n, 0.62, 0.09, 0.2))
+        slow = pace(t0, t1, n, 0.7, 0.12, 0.26)
         if em is None:
             out.append(dict(base, g=glyph_line(text, size)))
         elif em[0] == "word":
             out.append(dict(base, g=glyph_line(text, size, big=em[1], big_scale=1.55, big_color=GOLD)))
-        elif em[0] == "center_gold":
-            out.append(dict(base, g=glyph_line(text, 92, 0.10, FONT_B), cy=520, color=GOLD, glow=0.9,
-                            stagger=0.06, in_dur=0.6, rise=24, dark=0.5, out=0.7))
         elif em[0] == "side_gold":
-            for j, part in enumerate(em[1:]):
-                out.append(dict(base, t0=t0 + 0.45 * j, g=glyph_line(part, 84, 0.10, FONT_B), cx=1370,
-                                cy=430 + j * 125, color=GOLD, glow=0.9, stagger=0.07, in_dur=0.6,
-                                rise=20, dark=0.5 if j == 0 else 0.0, mask="side_dark", out=0.7))
+            parts = em[1:]
+            stg = pace(t0, t1, sum(len(x) for x in parts), 0.62, 0.12, 0.24)
+            delay = 0.0
+            for j, part in enumerate(parts):
+                out.append(dict(base, t0=t0 + delay, g=glyph_line(part, 84, 0.10, FONT_B), cx=1370,
+                                cy=430 + j * 125, color=GOLD, glow=0.9, stagger=stg, in_dur=0.8,
+                                rise=20, dark=0.5 if j == 0 else 0.0, mask="side_dark", out=1.0))
+                delay += len(part) * stg
         elif em[0] == "center":
             out.append(dict(base, g=glyph_line(text, 88, 0.10, FONT_B), cy=520, glow=0.7,
-                            stagger=0.06, in_dur=0.6, rise=24, dark=0.5, out=0.7))
+                            stagger=slow, in_dur=0.8, rise=24, dark=0.5, out=1.0))
         elif em[0] == "vertical":
             out.append(dict(base, g=glyph_vertical(text, 70, FONT_B), cx=W - 210, cy=490, glow=0.8,
-                            stagger=0.10, in_dur=0.7, rise=20, dark=0.55, mask="right_dark", out=1.0))
+                            stagger=slow, in_dur=0.9, rise=20, dark=0.55, mask="right_dark", out=1.2))
         elif em[0] == "impact":
-            head = text[:text.index(em[1])]
-            ht = hit if hit is not None else t0 + 1.5
-            out.append(dict(base, t1=t1, g=glyph_line(head, size)))
-            out.append(dict(base, t0=ht, t1=t1, g=glyph_line(em[1], 112, 0.08, FONT_B), cy=820,
+            ht = hit if hit is not None else t0
+            out.append(dict(base, t0=ht, g=glyph_line(text, 112, 0.08, FONT_B), cy=820,
                             color=GOLD, glow=1.0, stagger=0.035, in_dur=0.12, rise=0, shake=True,
-                            dark=0.55, mask="low_dark", out=0.6))
+                            dark=0.55, mask="low_dark", out=1.4))
         elif em[0] == "finale":
             out.append(dict(base, g=glyph_line(text, 84, 0.12, FONT_B), cy=520, glow=0.8,
-                            stagger=0.12, in_dur=0.9, rise=18, dark=0.62, mask="all_dark", out=1.2))
+                            stagger=slow, in_dur=1.0, rise=18, dark=0.62, mask="all_dark", out=1.4))
     return out
 
 
@@ -598,6 +634,15 @@ def init():
     for i, s in enumerate(shots):
         s["t1"] = shots[i + 1]["t0"] if i + 1 < len(shots) else DURATION + 0.5
     G["shots"] = shots
+    for s_ in shots:
+        if s_["t0"] == G["hit_time"]:
+            s_["xd"] = 0.0
+        elif s_["flash"]:
+            s_["xd"] = 0.5
+        elif s_["t0"] < 14.5 or 75.0 <= s_["t0"] < 90.0 or s_["t0"] >= 200.0:
+            s_["xd"] = 1.6
+        else:
+            s_["xd"] = 0.8
     G["flash_times"] = [(s["t0"], 0.6 if s["t0"] == G["hit_time"] else 0.28) for s in shots if s["flash"]]
     G["flash_times"] += [(float(beats[np.argmin(np.abs(beats - t))]), a) for t, a in TL.EXTRA_FLASH]
 

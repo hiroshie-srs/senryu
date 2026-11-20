@@ -80,10 +80,8 @@ SHOTS = [
     (155.0, "card", dict(p="C9", z=(1.0, 1.04))),
     (158.0, "card", dict(p="C10", z=(1.0, 1.05))),
     (162.0, "card", dict(p="M1", crop=MASK_M1, z=(1.0, 1.04))),
-    (165.0, "fill", dict(p="TALK", a=(836, 470, 1672), b=(820, 440, 1520))),
-    (166.5, "fill", dict(p="FIST", a=(812, 420, 1420), b=(800, 400, 1320), burst=(792, 362)), "hit"),
-    (170.5, "split", dict(ps=["H10", "K8"])),
-    (172.6, "card", dict(p="K10", z=(1.0, 1.03))),
+    (165.0, "fill", dict(p="TALK", a=(836, 470, 1672), b=(824, 445, 1540))),
+    (168.0, "fill", dict(p="FIST", a=(815, 425, 1440), b=(800, 400, 1300), burst=(792, 362)), "hit"),
     # ---------------- Chorus 3
     (175.0, "fill", dict(p="Y", a=(836, 470, 1672), b=(836, 470, 1590)), "flash"),
     (178.0, "card", dict(p="M3", z=(1.0, 1.03), x=MOON_X)),
@@ -99,13 +97,16 @@ SHOTS = [
     (213.2, "fill", dict(p="Y", a=(836, 455, 1590), b=(836, 470, 1672))),
 ]
 
+# lines that stay on screen until just before the next lyric
+HOLD_TO_NEXT = {"拳が合わさる"}
+
 # lyric-video emphasis for key lines (everything else sits small at the bottom)
 EMPHASIS = {
     "グラスの底のサバンナの月": ("side_gold", "グラスの底の", "サバンナの月"),
     "俺の秋がほどけてゆく": ("vertical",),
     "俺の秋が笑ってる": ("vertical",),
     "名前も知らないラフィキと": ("word", "ラフィキ"),
-    "カウンター越しに拳が合わさる": ("impact", "拳が合わさる"),
+    "拳が合わさる": ("impact",),
     "知らない夜がいつもの夜に": ("center",),
     "もう一杯だけ 笑わせてくれ": ("finale",),
 }
