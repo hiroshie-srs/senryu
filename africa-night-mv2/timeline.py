@@ -20,7 +20,7 @@ UMB = (20, 420, 300, 830)        # umbrella in the stand, panel B2
 MASK_B3 = (360, 120, 508, 470)   # mask on the wall, panel B3
 STOOLS = (0, 430, 508, 853)      # stools, panel B3
 MASK_M1 = (420, 200, 568, 440)   # mask, panel M1
-RAIN = {"B1", "B2", "C10", "Y"}
+RAIN = {"B1", "B2", "C10", "Y", "CATGO"}
 
 # Pacing: about one screen per lyric line (2 bars ≈ 3.5 s), longer holds in intro/interlude/outro.
 # Zoom per shot is kept to ~5 % so the motion stays calm.
@@ -52,30 +52,27 @@ SHOTS = [
     (71.0, "card", dict(p="H10", z=(1.04, 1.0))),
     # ---------------- interlude
     (75.6, "fill", dict(p="Y", a=(836, 470, 1672), b=(836, 470, 1590))),
-    (81.0, "split", dict(ps=["H7", "C7", "K7"])),
+    (81.0, "fill", dict(p="CATGO", a=(836, 470, 1672), b=(770, 500, 1590))),
     (85.5, "card", dict(p="H6", z=(1.0, 1.04), dark=0.25)),
     # ---------------- Verse 2
     (90.0, "fill", dict(p="T4", a=(415, 232, 831), b=(430, 240, 790))),
     (93.0, "card", dict(p="B2", crop=UMB, z=(1.04, 1.0))),
-    (97.0, "card", dict(p="M2", z=(1.0, 1.04))),
+    (97.0, "card", dict(p="N1", z=(1.0, 1.04))),
     (100.0, "card", dict(p="K4", z=(1.0, 1.04))),
     (104.0, "card", dict(p="H10", z=(1.0, 1.04))),
-    (107.5, "split", dict(ps=["H8", "K8", "H10"])),
+    (107.5, "fill", dict(p="SAV", a=(836, 470, 1672), b=(820, 500, 1590), dream=True, xd=1.6)),
     # ---------------- Pre-Chorus 2
     (111.0, "fill", dict(p="T3", a=(395, 232, 790), b=(415, 232, 831))),
     (115.0, "card", dict(p="K9", z=(1.0, 1.05), rot=(-2.0, 2.0))),
     (118.0, "card", dict(p="K8", z=(1.0, 1.04))),
     (122.0, "fill", dict(p="T2", a=(415, 232, 831), b=(430, 225, 790))),
-    (125.5, "split", dict(ps=["H4", "K8", "H10"])),
     # ---------------- Chorus 2
     (129.0, "card", dict(p="H10", z=(1.0, 1.04)), "flash"),
-    (131.0, "split", dict(ps=["K4", "H4", "B3"])),
     (133.0, "card", dict(p="M2", z=(1.0, 1.03), x=MOON_X)),
     (137.0, "card", dict(p="H1", z=(1.0, 1.03))),
     (140.0, "fill", dict(p="T2", a=(560, 200, 640), b=(545, 210, 672))),
     (143.5, "card", dict(p="B1", z=(1.0, 1.04))),
     (147.0, "card", dict(p="H10", z=(1.0, 1.04))),
-    (151.0, "split", dict(ps=["H10", "K4", "M3"])),
     # ---------------- Bridge (the wet cat comes home — only here)
     (155.0, "card", dict(p="C9", z=(1.0, 1.04))),
     (158.0, "card", dict(p="C10", z=(1.0, 1.05))),

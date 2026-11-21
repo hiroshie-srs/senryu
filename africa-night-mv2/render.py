@@ -131,6 +131,8 @@ def load():
     src["Y"] = grade(Image.open(os.path.join(ASSETS, "sheets", "yokohama.webp")))
     src["TALK"] = grade(Image.open(os.path.join(ASSETS, "sheets", "talk.webp")))
     src["FIST"] = grade(Image.open(os.path.join(ASSETS, "sheets", "fistbump.webp")))
+    src["CATGO"] = grade(Image.open(os.path.join(ASSETS, "sheets", "cat_leaving.webp")))
+    src["SAV"] = grade(Image.open(os.path.join(ASSETS, "sheets", "savanna.webp")))
     glints = {k: find_glints(v, n=(7 if k == "Y" else 5 if k in ("TALK", "FIST") else 4)) for k, v in src.items()}
     return src, glints
 
@@ -253,6 +255,10 @@ def layout_fill(frame, t, p, prm):
     cy = min(max(cy + sy * w / W, h / 2), img.height - h / 2)
     box = (cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
     place(frame, img, box, 0, 0, W, H)
+    if prm.get("dream"):  # imagined scene: soft blurred corners, gently brighter
+        soft = to_f(to_img(frame).filter(ImageFilter.GaussianBlur(14)))
+        m = G["dream_mask"]
+        frame[:] = (frame * (1 - m) + soft * m) * 1.06 + 0.035
     if prm.get("burst"):
         bx, by = prm["burst"]
         G["burst_xy"] = ((bx - box[0]) / w * W, (by - box[1]) / h * H)
@@ -699,6 +705,8 @@ def init():
     for s_ in shots:
         if s_["t0"] == G["hit_time"]:
             s_["xd"] = 0.0
+        elif s_["prm"].get("xd"):
+            s_["xd"] = s_["prm"]["xd"]
         elif s_["flash"]:
             s_["xd"] = 0.5
         elif s_["t0"] < 14.5 or 75.0 <= s_["t0"] < 90.0 or s_["t0"] >= 200.0:
@@ -718,6 +726,8 @@ def init():
     G["vig"] = np.clip(1 - 0.6 * np.clip(r - 0.45, 0, None) ** 1.5, 0, 1)[..., None].astype(np.float32)
     G["lowband"] = (1 - 0.45 * np.clip((yy[:, :1] - 880) / 160, 0, 1) ** 1.3)[..., None].astype(np.float32)
     G["side_dark"] = np.exp(-(((xx - 1370) / 520) ** 2 + ((yy - 490) / 230) ** 2))[..., None].astype(np.float32)
+    rd = np.sqrt(((xx - W / 2) / (W * 0.55)) ** 2 + ((yy - H / 2) / (H * 0.62)) ** 2)
+    G["dream_mask"] = (np.clip((rd - 0.55) / 0.5, 0, 1) ** 1.2)[..., None].astype(np.float32)
     G["low_dark"] = np.exp(-(((xx - W / 2) / 640) ** 2 + ((yy - 820) / 120) ** 2))[..., None].astype(np.float32)
     G["right_dark"] = (np.clip((xx[:1] - 1250) / 400, 0, 1) ** 1.2)[..., None].astype(np.float32) * np.ones((H, 1, 1), np.float32)
     G["all_dark"] = np.ones((H, W, 1), np.float32)
