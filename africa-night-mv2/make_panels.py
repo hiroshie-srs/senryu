@@ -18,18 +18,21 @@ SPEC = {
     "cat": [(x, 80, y, 467) for x, y in C_TOP] + [(x, 480, y, 911) for x, y in C_BOT],
     "master": [(x, 63, y, 485) for x, y in [(10, 333), (342, 664), (673, 994), (1004, 1325), (1334, 1661)]]
     + [(x, 495, y, 926) for x, y in [(9, 300), (309, 608), (616, 910), (918, 1240), (1248, 1662)]],
+    # replacement for master panel 10 only (blackboard without "Tobe")
+    "master_v2": [(1248, 495, 1662, 926)],
     "moon2": [(844, 479, 1659, 915)],
     "talk4": [(4, 4, 835, 468), (838, 4, 1669, 468), (4, 472, 835, 937), (838, 472, 1669, 937)],
     "bar": [(11, 63, 578, 916), (594, 63, 1136, 916), (1152, 63, 1662, 916)],
     "moon": [(11, 63, 579, 916), (595, 63, 1134, 916), (1150, 63, 1661, 916)],
 }
-PREFIX = {"moon2": "N", "talk4": "T", "master": "K", "hiroshie": "H", "cat": "C", "bar": "B", "moon": "M"}
-BADGE = {"moon2": 66, "talk4": 44, "master": 46, "hiroshie": 58, "cat": 46, "bar": 66, "moon": 66}
+PREFIX = {"master_v2": "K", "moon2": "N", "talk4": "T", "master": "K", "hiroshie": "H", "cat": "C", "bar": "B", "moon": "M"}
+BADGE = {"master_v2": 46, "moon2": 66, "talk4": 44, "master": 46, "hiroshie": 58, "cat": 46, "bar": 66, "moon": 66}
 
 os.makedirs(OUT, exist_ok=True)
+START = {"master_v2": 10}
 for sheet, boxes in SPEC.items():
     img = cv2.imread(os.path.join(SHEETS, sheet + ".webp"))
-    for i, (x0, y0, x1, y1) in enumerate(boxes, 1):
+    for i, (x0, y0, x1, y1) in enumerate(boxes, START.get(sheet, 1)):
         p = img[y0 + 2:y1 - 1, x0 + 2:x1 - 1].copy() if sheet != "talk4" else img[y0:y1, x0:x1].copy()
         b = BADGE[sheet]
         mask = np.zeros(p.shape[:2], np.uint8)
